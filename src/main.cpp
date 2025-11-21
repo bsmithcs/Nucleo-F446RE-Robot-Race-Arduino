@@ -104,7 +104,7 @@ volatile state_e state;
 
 // Stopwatch timer variables
 volatile uint32_t start_time;
-volatile uint32_t time;
+volatile uint32_t stopwatch_time;
 volatile uint32_t finish_time;
 
 volatile int digit;
@@ -142,7 +142,7 @@ void setup()
     timer5 = new HardwareTimer(TIM5);
 
     timer2->setOverflow(SSD_RATE, HERTZ_FORMAT);
-    timer5->setPrescaleFactor(15999);
+    timer5->setPrescaleFactor(15);
     timer5->setOverflow(0xFFFFFFFF);
 
     timer2->attachInterrupt(tim2_handler);
@@ -171,7 +171,7 @@ void setup()
     /***** Initialize State *****/
     state = stopped;
     start_time = -1;
-    time = -1;
+    stopwatch_time = -1;
     finish_time = -1;
     digit = 0;
     decimal = 2;
@@ -219,8 +219,8 @@ void tim2_handler(void)
     }
     else if (start_time != -1)
     {
-        time = timer5->getCount();
-        SSD_update(digit, (time - start_time) / 10, decimal);
+        stopwatch_time = timer5->getCount();
+        SSD_update(digit, (stopwatch_time - start_time) / 10000, decimal);
     }
     else
     {
@@ -292,7 +292,7 @@ void seek_opening(void)
     update_motors(pivot_left);
     scan_start = timer5->getCount();
     // Adjust while loop to set time pivoting one direction (currently 3000ms)
-    while (((timer5->getCount() - scan_start) < 3000) && (sonar_distance <= 60.0))
+    while (((timer5->getCount() - scan_start) < 3000000) && (sonar_distance <= 60.0))
     {
         read_sonar();
     }
@@ -304,7 +304,7 @@ void seek_opening(void)
     update_motors(pivot_right);
     scan_start = timer5->getCount();
     // Adjust while loop to set time pivoting one direction (currently 3000ms)
-    while (((timer5->getCount() - scan_start) < 3000) && (sonar_distance <= 60.0))
+    while (((timer5->getCount() - scan_start) < 3000000) && (sonar_distance <= 60.0))
     {
         read_sonar();
     }
@@ -348,7 +348,7 @@ void park(void)
     else
     {
         // Waiting 3 seconds before transitioning to dancing
-        if ((timer5->getCount() - wait_timer) >= 3000)
+        if ((timer5->getCount() - wait_timer) >= 3000000)
         { // 3 seconds
             state = dancing;
             waiting = false;
@@ -375,7 +375,7 @@ void dance(void)
     }
 
     // Check if it's time to switch direction
-    if ((timer5->getCount() - dance_timer) >= 250)
+    if ((timer5->getCount() - dance_timer) >= 250000)
     { // 250ms
         if (moving_forward)
         {
@@ -445,14 +445,14 @@ void neo_blink(uint32_t color)
     uint32_t current_time = timer5->getCount();
     uint32_t elapsed = current_time - neo_last_update;
 
-    if (neo_flag && elapsed >= 1000)
+    if (neo_flag && elapsed >= 1000000)
     { // 1 second ON
         pixels.clear();
         pixels.show();
         neo_flag = false;
         neo_last_update = current_time;
     }
-    else if (!neo_flag && elapsed >= 500)
+    else if (!neo_flag && elapsed >= 500000)
     { // 0.5 second OFF
         pixels.fill(neo_current_color);
         pixels.show();
