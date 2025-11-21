@@ -142,6 +142,7 @@ void setup()
     timer5 = new HardwareTimer(TIM5);
 
     timer2->setOverflow(SSD_RATE, HERTZ_FORMAT);
+    timer5->setPrescaleFactor(15999);
     timer5->setOverflow(0xFFFFFFFF);
 
     timer2->attachInterrupt(tim2_handler);
@@ -318,14 +319,41 @@ void seek_opening(void)
 ///        Move to dancing state when IR reads 0b1111
 void park(void)
 {
-    neo_blink(BLUE);
-    update_motors(forward);
-    read_IR();
-    if (IR_reading == 0b1111)
+    static uint32_t wait_timer = 0;
+    static bool waiting = false;
+    static bool initialized = false;
+
+    // Initialize on first entry to parking state
+    if (!initialized)
     {
-        update_motors(stop_motors);
-        state = dancing;
-        delay(3000); // 3 seconds
+        waiting = false;
+        initialized = true;
+    }
+
+    neo_blink(BLUE);
+
+    if (!waiting)
+    {
+        // Normal parking behavior
+        update_motors(forward);
+        read_IR();
+
+        if (IR_reading == 0b1111)
+        {
+            update_motors(stop_motors);
+            waiting = true;
+            wait_timer = timer5->getCount();
+        }
+    }
+    else
+    {
+        // Waiting 3 seconds before transitioning to dancing
+        if ((timer5->getCount() - wait_timer) >= 3000)
+        { // 3 seconds
+            state = dancing;
+            waiting = false;
+            initialized = false; // Reset for next time
+        }
     }
 }
 
@@ -333,15 +361,41 @@ void park(void)
 ///        Move to stopped state when button is pressed
 void dance(void)
 {
-    dancing_flag = true;
-    while (dancing_flag)
+    static uint32_t dance_timer = 0;
+    static bool moving_forward = true;
+    static bool initialized = false;
+
+    // Initialize on first entry to dancing state
+    if (!initialized)
     {
-        update_motors(forward);
-        delay(250);
-        update_motors(backward);
-        delay(250);
+        dancing_flag = true;
+        dance_timer = timer5->getCount();
+        moving_forward = true;
+        initialized = true;
     }
-    state = stopped;
+
+    // Check if it's time to switch direction
+    if ((timer5->getCount() - dance_timer) >= 250)
+    { // 250ms
+        if (moving_forward)
+        {
+            update_motors(forward);
+            moving_forward = false;
+        }
+        else
+        {
+            update_motors(backward);
+            moving_forward = true;
+        }
+        dance_timer = timer5->getCount();
+    }
+
+    // Check if button was pressed to stop dancing
+    if (!dancing_flag)
+    {
+        state = stopped;
+        initialized = false; // Reset for next time
+    }
 }
 
 /// @brief Updates servo motors with the given movement, sending needs PWMs
@@ -357,6 +411,7 @@ void update_motors(movement_e movement)
     case backward:
         left_servo.write(L_MAX_BACKWARD);
         right_servo.write(R_MAX_BACKWARD);
+        break;
     case forward:
         left_servo.write(L_MAX_FORWARD);
         right_servo.write(R_MAX_FORWARD);
@@ -390,14 +445,14 @@ void neo_blink(uint32_t color)
     uint32_t current_time = timer5->getCount();
     uint32_t elapsed = current_time - neo_last_update;
 
-    if (neo_flag && elapsed >= 1000000)
-    { // 1 second ON (adjust units)
+    if (neo_flag && elapsed >= 1000)
+    { // 1 second ON
         pixels.clear();
         pixels.show();
         neo_flag = false;
         neo_last_update = current_time;
     }
-    else if (!neo_flag && elapsed >= 500000)
+    else if (!neo_flag && elapsed >= 500)
     { // 0.5 second OFF
         pixels.fill(neo_current_color);
         pixels.show();
