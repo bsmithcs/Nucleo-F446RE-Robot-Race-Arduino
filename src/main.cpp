@@ -22,21 +22,28 @@ extern "C"
 #define SSD_RATE 200
 
 /***** Servo Definitions *****/
-#include <Servo.h>
+#include "STM32_ISR_Servo.h"
+
 #define L_SERVO_PIN PC8
 #define R_SERVO_PIN PC9
 
-#define STOP_SIGNAL 1500
-// Possibly wrong
-#define L_MAX_FORWARD 1720
-#define R_MAX_FORWARD 1280
-#define L_MAX_BACKWARD 1280
-#define R_MAX_BACKWARD 1720
+#define MIN_MICROS 1280
+#define MAX_MICROS 1720
 
-#define L_MIN_FORWARD 1550
-#define R_MIN_FORWARD 1450
-#define L_MIN_BACKWARD 1450
-#define R_MIN_BACKWARD 1550
+#define STOP_SIGNAL 90
+// Possibly wrong
+#define L_MAX_FORWARD 180
+#define R_MAX_FORWARD 0
+#define L_MAX_BACKWARD 0
+#define R_MAX_BACKWARD 180
+
+#define L_MIN_FORWARD 100
+#define R_MIN_FORWARD 80
+#define L_MIN_BACKWARD 80
+#define R_MIN_BACKWARD 100
+
+int left_servo = -1;
+int right_servo = -1;
 
 /// @brief Possible movement commands to send to the servos
 typedef enum movement_commands
@@ -49,9 +56,6 @@ typedef enum movement_commands
     pivot_left,
     pivot_right
 } movement_e;
-
-Servo left_servo;
-Servo right_servo;
 
 /***** IR Definitions *****/
 #define IR_SENSOR_PORT GPIOC
@@ -155,8 +159,10 @@ void setup()
     SSD_init();
 
     /***** Servo Config *****/
-    left_servo.attach(L_SERVO_PIN);
-    right_servo.attach(R_SERVO_PIN);
+    STM32_ISR_Servos.useTimer(TIM7);
+
+    left_servo = STM32_ISR_Servos.setupServo(L_SERVO_PIN, MIN_MICROS, MAX_MICROS);
+    right_servo = STM32_ISR_Servos.setupServo(R_SERVO_PIN, MIN_MICROS, MAX_MICROS);
 
     /***** Sonar Config *****/
     sonar_config();
@@ -405,32 +411,32 @@ void update_motors(movement_e movement)
     switch (movement)
     {
     case stop_motors:
-        left_servo.write(STOP_SIGNAL);
-        right_servo.write(STOP_SIGNAL);
+        STM32_ISR_Servos.setPosition(left_servo, STOP_SIGNAL);
+        STM32_ISR_Servos.setPosition(right_servo, STOP_SIGNAL);
         break;
     case backward:
-        left_servo.write(L_MAX_BACKWARD);
-        right_servo.write(R_MAX_BACKWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MAX_BACKWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MAX_BACKWARD);
         break;
     case forward:
-        left_servo.write(L_MAX_FORWARD);
-        right_servo.write(R_MAX_FORWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MAX_FORWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MAX_FORWARD);
         break;
     case left:
-        left_servo.write(L_MIN_FORWARD);
-        right_servo.write(R_MAX_FORWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MIN_FORWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MAX_FORWARD);
         break;
     case right:
-        left_servo.write(L_MAX_FORWARD);
-        right_servo.write(R_MIN_FORWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MAX_FORWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MIN_FORWARD);
         break;
     case pivot_left:
-        left_servo.write(L_MIN_BACKWARD);
-        right_servo.write(R_MIN_FORWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MIN_BACKWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MIN_FORWARD);
         break;
     case pivot_right:
-        left_servo.write(L_MIN_FORWARD);
-        right_servo.write(R_MIN_BACKWARD);
+        STM32_ISR_Servos.setPosition(left_servo, L_MIN_FORWARD);
+        STM32_ISR_Servos.setPosition(right_servo, R_MIN_BACKWARD);
         break;
     default:
         break;
