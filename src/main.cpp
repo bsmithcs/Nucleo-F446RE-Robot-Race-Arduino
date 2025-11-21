@@ -78,6 +78,10 @@ volatile float sonar_distance;
 
 Adafruit_NeoPixel pixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+volatile uint32_t neo_last_update = 0;
+volatile bool neo_flag = false;
+volatile uint32_t neo_current_color = RED;
+
 /***** Button Definitions *****/
 #define BTN_PIN PC13
 
@@ -108,11 +112,10 @@ volatile int decimal;
 
 /***** Flags *****/
 volatile bool dancing_flag;
-volatile bool neo_blinking;
 
 /***** Function Declarations *****/
-void TIM2_Handler(void);
-void BTN_Handler(void);
+void tim2_handler(void);
+void btn_handler(void);
 void sonar_handler_rise(void);
 void sonar_handler_fall(void);
 
@@ -141,11 +144,11 @@ void setup()
     timer2->setOverflow(SSD_RATE, HERTZ_FORMAT);
     timer5->setOverflow(0xFFFFFFFF);
 
-    timer2->attachInterrupt(TIM2_Handler);
+    timer2->attachInterrupt(tim2_handler);
 
     /***** Button Config *****/
     pinMode(BTN_PIN, INPUT_PULLUP);
-    attachInterrupt(BTN_PIN, BTN_Handler, FALLING);
+    attachInterrupt(BTN_PIN, btn_handler, FALLING);
 
     /***** SSD Config *****/
     SSD_init();
@@ -172,6 +175,10 @@ void setup()
     digit = 0;
     decimal = 2;
     sonar_distance = 0.0;
+
+    /***** Start Timers *****/
+    timer2->resume();
+    timer5->resume();
 }
 
 void loop()
@@ -201,7 +208,7 @@ void loop()
 /***** Function Definitions *****/
 
 /// @brief Interrupt handler for TIM2, updates SSD with current stopwatch time
-void TIM2_Handler(void)
+void tim2_handler(void)
 {
     digit = (digit + 1) % 4;
 
@@ -222,7 +229,7 @@ void TIM2_Handler(void)
 
 /// @brief Interrupt handler for BTN, updates state from stopped to following_line
 ///        or if not stopped, updates to stopped state, resetting flags
-void BTN_Handler(void)
+void btn_handler(void)
 {
     if (state == stopped)
     {
@@ -237,6 +244,7 @@ void BTN_Handler(void)
 }
 
 /// @brief Executed continuously under the "stopped" state
+///        Move to following_line state when button is pressed
 void stop(void)
 {
     neo_blink(RED);
@@ -244,6 +252,7 @@ void stop(void)
 }
 
 /// @brief Executed continuously under the "following_line" state
+///        Move to seeking_opening state when IR reads 0b0000
 void follow_line(void)
 {
     read_IR();
@@ -266,6 +275,7 @@ void follow_line(void)
         break;
     case 0b0000:
         update_motors(stop_motors);
+        state = seeking_opening;
         break;
     default:
         update_motors(forward);
@@ -274,12 +284,14 @@ void follow_line(void)
 }
 
 /// @brief Executed continuously under the "seeking_opening" state
+///        Move to parking state when sonar reads long distance
 void seek_opening(void)
 {
+    uint32_t scan_start;
     update_motors(pivot_left);
-    uint32_t scan_start = timer5->getCount();
-    // Adjust while loop to set time pivoting one direction
-    while (((timer5->getCount() - scan_start) < 3000) || sonar_distance > 60.0)
+    scan_start = timer5->getCount();
+    // Adjust while loop to set time pivoting one direction (currently 3000ms)
+    while (((timer5->getCount() - scan_start) < 3000) && (sonar_distance <= 60.0))
     {
         read_sonar();
     }
@@ -289,9 +301,9 @@ void seek_opening(void)
         return;
     }
     update_motors(pivot_right);
-    uint32_t scan_start = timer5->getCount();
-    // Adjust while loop to set time pivoting one direction
-    while (((timer5->getCount() - scan_start) < 3000) || sonar_distance > 60.0)
+    scan_start = timer5->getCount();
+    // Adjust while loop to set time pivoting one direction (currently 3000ms)
+    while (((timer5->getCount() - scan_start) < 3000) && (sonar_distance <= 60.0))
     {
         read_sonar();
     }
@@ -303,6 +315,7 @@ void seek_opening(void)
 }
 
 /// @brief Executed continuously under the "parking" state
+///        Move to dancing state when IR reads 0b1111
 void park(void)
 {
     neo_blink(BLUE);
@@ -312,11 +325,12 @@ void park(void)
     {
         update_motors(stop_motors);
         state = dancing;
-        delay(3000);
+        delay(3000); // 3 seconds
     }
 }
 
 /// @brief Executed continuously under the "dancing" state
+///        Move to stopped state when button is pressed
 void dance(void)
 {
     dancing_flag = true;
@@ -340,6 +354,9 @@ void update_motors(movement_e movement)
         left_servo.write(STOP_SIGNAL);
         right_servo.write(STOP_SIGNAL);
         break;
+    case backward:
+        left_servo.write(L_MAX_BACKWARD);
+        right_servo.write(R_MAX_BACKWARD);
     case forward:
         left_servo.write(L_MAX_FORWARD);
         right_servo.write(R_MAX_FORWARD);
@@ -369,10 +386,24 @@ void update_motors(movement_e movement)
 /// @param color Color to blink the NeoPixels with
 void neo_blink(uint32_t color)
 {
-    pixels.fill(color);
-    delay(1000);
-    pixels.clear();
-    delay(500);
+    neo_current_color = color;
+    uint32_t current_time = timer5->getCount();
+    uint32_t elapsed = current_time - neo_last_update;
+
+    if (neo_flag && elapsed >= 1000000)
+    { // 1 second ON (adjust units)
+        pixels.clear();
+        pixels.show();
+        neo_flag = false;
+        neo_last_update = current_time;
+    }
+    else if (!neo_flag && elapsed >= 500000)
+    { // 0.5 second OFF
+        pixels.fill(neo_current_color);
+        pixels.show();
+        neo_flag = true;
+        neo_last_update = current_time;
+    }
 }
 
 /// @brief Configures TX and RX Pins for sonar sensor
@@ -405,7 +436,7 @@ void sonar_handler_fall(void)
 {
     fall = timer5->getCount();
     uint32_t pulse_width = fall - rise;
-    sonar_distance = (float)pulse_width / 148.1f;
+    sonar_distance = (float)pulse_width / 148.1f; // Convert w/ speed of sound
 }
 
 /// @brief Configures InfraRed Sensors
