@@ -2,7 +2,7 @@
 #include "stm32f4xx.h"
 #include <Arduino.h>
 
-#define CLOCK_SPEED 16000000UL
+#define CLOCK_SPEED 16000000UL // Core Clock Speed
 
 /***** SSD Definitions *****/
 #ifndef SSD_ARRAY_H
@@ -38,6 +38,7 @@ extern "C"
 #define L_MIN_BACKWARD 1450
 #define R_MIN_BACKWARD 1550
 
+/// @brief Possible movement commands to send to the servos
 typedef enum movement_commands
 {
     stop_motors,
@@ -85,6 +86,8 @@ HardwareTimer *timer2;
 HardwareTimer *timer5;
 
 /***** State *****/
+
+/// @brief Global state that indicates the robot's current process
 typedef enum state_machine
 {
     stopped,
@@ -95,6 +98,7 @@ typedef enum state_machine
 } state_e;
 volatile state_e state;
 
+// Stopwatch timer variables
 volatile uint32_t start_time;
 volatile uint32_t time;
 volatile uint32_t finish_time;
@@ -196,6 +200,7 @@ void loop()
 
 /***** Function Definitions *****/
 
+/// @brief Interrupt handler for TIM2, updates SSD with current stopwatch time
 void TIM2_Handler(void)
 {
     digit = (digit + 1) % 4;
@@ -215,6 +220,8 @@ void TIM2_Handler(void)
     }
 }
 
+/// @brief Interrupt handler for BTN, updates state from stopped to following_line
+///        or if not stopped, updates to stopped state, resetting flags
 void BTN_Handler(void)
 {
     if (state == stopped)
@@ -229,12 +236,14 @@ void BTN_Handler(void)
     }
 }
 
+/// @brief Executed continuously under the "stopped" state
 void stop(void)
 {
     neo_blink(RED);
     update_motors(stop_motors);
 }
 
+/// @brief Executed continuously under the "following_line" state
 void follow_line(void)
 {
     read_IR();
@@ -264,6 +273,7 @@ void follow_line(void)
     }
 }
 
+/// @brief Executed continuously under the "seeking_opening" state
 void seek_opening(void)
 {
     update_motors(pivot_left);
@@ -292,6 +302,7 @@ void seek_opening(void)
     }
 }
 
+/// @brief Executed continuously under the "parking" state
 void park(void)
 {
     neo_blink(BLUE);
@@ -305,6 +316,7 @@ void park(void)
     }
 }
 
+/// @brief Executed continuously under the "dancing" state
 void dance(void)
 {
     dancing_flag = true;
@@ -318,6 +330,8 @@ void dance(void)
     state = stopped;
 }
 
+/// @brief Updates servo motors with the given movement, sending needs PWMs
+/// @param movement Instruction to execute for the robot
 void update_motors(movement_e movement)
 {
     switch (movement)
@@ -351,6 +365,8 @@ void update_motors(movement_e movement)
     }
 }
 
+/// @brief Blinks NeoPixels the given color
+/// @param color Color to blink the NeoPixels with
 void neo_blink(uint32_t color)
 {
     pixels.fill(color);
@@ -359,6 +375,7 @@ void neo_blink(uint32_t color)
     delay(500);
 }
 
+/// @brief Configures TX and RX Pins for sonar sensor
 void sonar_config(void)
 {
     pinMode(TX_PIN, OUTPUT);
@@ -367,6 +384,7 @@ void sonar_config(void)
     attachInterrupt(RX_PIN, sonar_handler_fall, FALLING);
 }
 
+/// @brief Initiates sonar read by sending signal to TX pin
 void read_sonar(void)
 {
     digitalWrite(TX_PIN, HIGH);
@@ -376,11 +394,13 @@ void read_sonar(void)
     digitalWrite(TX_PIN, LOW);
 }
 
+/// @brief Reads in rise on RX pin
 void sonar_handler_rise(void)
 {
     rise = timer5->getCount();
 }
 
+/// @brief Reads in fall on RX pin, calculating distance via the pulse width
 void sonar_handler_fall(void)
 {
     fall = timer5->getCount();
@@ -388,6 +408,7 @@ void sonar_handler_fall(void)
     sonar_distance = (float)pulse_width / 148.1f;
 }
 
+/// @brief Configures InfraRed Sensors
 void IR_config(void)
 {
     pinMode(PC0, INPUT);
@@ -396,6 +417,8 @@ void IR_config(void)
     pinMode(PC3, INPUT);
 }
 
+/// @brief Updates IR_reading with a new reading,
+///        where (1 = line) and (0 = no line)
 void read_IR(void)
 {
     IR_reading = (~IR_SENSOR_PORT->IDR) & 0b1111;
